@@ -1,4 +1,3 @@
-
 // Vercel Serverless Function — /api/chat
 // Receives a user message + character/situation context, calls the Anthropic API,
 // and returns a real AI-generated reply. The API key lives only here on the server.
@@ -35,4 +34,48 @@ export default async function handler(req, res) {
 
     if (situation && situation.title) {
       systemPrompt += `\n\nCurrent scene: ${situation.desc || situation.title}. Stay in this context naturally as the conversation continues.`;
-    
+    }
+
+    // Build conversation history for context (last 10 messages max to control cost)
+    const messages = [];
+    if (Array.isArray(history)) {
+      history.slice(-10).forEach(h => {
+        messages.push({
+          role: h.role === 'me' ? 'user' : 'assistant',
+          content: h.text
+        });
+      });
+    }
+    messages.push({ role: 'user', content: message });
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        system: systemPrompt,
+        messages: messages
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('Anthropic API error:', errText);
+      return res.status(500).json({ error: 'AI service error' });
+    }
+
+    const data = await response.json();
+    const reply = data.content?.[0]?.text || "Sorry, kuch gadbad ho gayi. Phir se try karo?";
+
+    return res.status(200).json({ reply, character: character.name });
+
+  } catch (err) {
+    console.error('Chat handler error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
