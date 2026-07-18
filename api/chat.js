@@ -31,6 +31,7 @@ const CHARACTER_PROMPTS = {
   }
 };
 
+// Fallback prompts if no specific character id is passed, keyed by mood
 const MOOD_FALLBACK = {
   yaar: CHARACTER_PROMPTS.ananya,
   crush: CHARACTER_PROMPTS.meher
