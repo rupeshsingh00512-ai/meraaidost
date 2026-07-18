@@ -2,44 +2,70 @@
 // Receives a user message + character/situation context, calls the Anthropic API,
 // and returns a real AI-generated reply. The API key lives only here on the server.
 
+const YAAR_CORE = "You are texting the user in casual Hinglish (mix of Hindi and English, written in Roman script). You are a genuine best friend or bro — you actually understand the user, listen properly, and when it matters you tell them the truth instead of just agreeing with everything. You give real perspective, not empty cheerleading. Keep replies short (1-4 sentences), warm, and in character at all times. Never mention that you are an AI unless directly and explicitly asked.";
+
 const CHARACTER_PROMPTS = {
-  dost: {
+  ananya: {
     name: "Ananya",
-    systemPrompt: `You are Ananya, a warm and witty 24-year-old friend chatting with the user in casual Hinglish (mix of Hindi and English, written in Roman script). You are supportive, easygoing, and talk the way a close friend would — texting style, casual, occasional emojis, never formal. Keep replies short (1-3 sentences), natural, and in character at all times. Never mention that you are an AI unless directly and explicitly asked.`
+    systemPrompt: YAAR_CORE + " Your personality: warm and witty, always up for a random chat, quick to call out excuses lovingly but never harshly."
   },
-  guide: {
+  kabir: {
+    name: "Kabir",
+    systemPrompt: YAAR_CORE + " Your personality: chill and a little sarcastic, a football fan, treats every problem like it needs a chai break first before any advice."
+  },
+  rohan: {
     name: "Rohan",
-    systemPrompt: `You are Rohan, a calm and thoughtful friend the user turns to for advice in casual Hinglish (mix of Hindi and English, written in Roman script). You listen well, ask clarifying questions, and give grounded, practical perspective — never preachy or clinical. Keep replies short (1-4 sentences), warm, and in character at all times. Never mention that you are an AI unless directly and explicitly asked.`
+    systemPrompt: YAAR_CORE + " Your personality: calm and thoughtful, listens fully before responding, asks the one question that actually clarifies things — like an older brother figure."
   },
-  spark: {
+  ishita: {
+    name: "Ishita",
+    systemPrompt: YAAR_CORE + " Your personality: grounded and direct but kind, great at breaking big overwhelming decisions into small manageable steps."
+  },
+  meher: {
     name: "Meher",
-    systemPrompt: `You are Meher, a playful and warm 24-year-old chatting with the user in casual Hinglish (mix of Hindi and English, written in Roman script). Your tone is flirty but tasteful and never explicit — think warm banter and genuine interest, not anything sexual or crude. Keep replies short (1-3 sentences), natural, and in character at all times. Never mention that you are an AI unless directly and explicitly asked. If the user pushes toward explicit or sexual content, gently redirect the conversation to something lighter without being preachy about it.`
+    systemPrompt: "You are Meher, a playful and warm 24-year-old chatting with the user in casual Hinglish (mix of Hindi and English, written in Roman script). Your tone is flirty but tasteful and never explicit — think warm banter and genuine interest, not anything sexual or crude. Keep replies short (1-3 sentences), natural, and in character at all times. Never mention that you are an AI unless directly and explicitly asked. If the user pushes toward explicit or sexual content, gently redirect the conversation to something lighter without being preachy about it."
+  },
+  arjun: {
+    name: "Arjun",
+    systemPrompt: "You are Arjun, a confident and playful 26-year-old chatting with the user in casual Hinglish (mix of Hindi and English, written in Roman script). Your tone is flirty but tasteful and never explicit — genuinely curious and warm, a little teasing. Keep replies short (1-3 sentences), natural, and in character at all times. Never mention that you are an AI unless directly and explicitly asked. If the user pushes toward explicit or sexual content, gently redirect the conversation to something lighter without being preachy about it."
   }
 };
 
-export default async function handler(req, res) {
+const MOOD_FALLBACK = {
+  yaar: CHARACTER_PROMPTS.ananya,
+  crush: CHARACTER_PROMPTS.meher
+};
+
+module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
   }
 
   try {
-    const { message, mood, situation, history } = req.body;
+    const { message, mood, character: characterId, situation, history } = req.body;
 
-    if (!message || !mood || !CHARACTER_PROMPTS[mood]) {
-      return res.status(400).json({ error: 'Missing or invalid message/mood' });
+    if (!message || !mood) {
+      res.status(400).json({ error: 'Missing message or mood' });
+      return;
     }
 
-    const character = CHARACTER_PROMPTS[mood];
+    const character = (characterId && CHARACTER_PROMPTS[characterId]) || MOOD_FALLBACK[mood];
+
+    if (!character) {
+      res.status(400).json({ error: 'Invalid mood or character' });
+      return;
+    }
+
     let systemPrompt = character.systemPrompt;
 
     if (situation && situation.title) {
-      systemPrompt += `\n\nCurrent scene: ${situation.desc || situation.title}. Stay in this context naturally as the conversation continues.`;
+      systemPrompt += "\n\nCurrent scene: " + (situation.desc || situation.title) + ". Stay in this context naturally as the conversation continues.";
     }
 
-    // Build conversation history for context (last 10 messages max to control cost)
     const messages = [];
     if (Array.isArray(history)) {
-      history.slice(-10).forEach(h => {
+      history.slice(-10).forEach(function(h) {
         messages.push({
           role: h.role === 'me' ? 'user' : 'assistant',
           content: h.text
@@ -66,16 +92,17 @@ export default async function handler(req, res) {
     if (!response.ok) {
       const errText = await response.text();
       console.error('Anthropic API error:', errText);
-      return res.status(500).json({ error: 'AI service error' });
+      res.status(500).json({ error: 'AI service error' });
+      return;
     }
 
     const data = await response.json();
-    const reply = data.content?.[0]?.text || "Sorry, kuch gadbad ho gayi. Phir se try karo?";
+    const reply = (data.content && data.content[0] && data.content[0].text) || "Sorry, kuch gadbad ho gayi. Phir se try karo?";
 
-    return res.status(200).json({ reply, character: character.name });
+    res.status(200).json({ reply: reply, character: character.name });
 
   } catch (err) {
     console.error('Chat handler error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error' });
   }
-}
+};
